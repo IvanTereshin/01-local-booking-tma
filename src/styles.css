@@ -28,6 +28,14 @@
   box-sizing: border-box;
 }
 
+:where(.phone-shell, .screen, section, article, div, header, nav, button, label, input, select, textarea) {
+  min-width: 0;
+}
+
+:where(h1, h2, h3, p, span, strong, small, em, button, label, code, input, select, textarea) {
+  overflow-wrap: anywhere;
+}
+
 html {
   min-height: 100%;
   background: var(--tg-bg);
@@ -207,7 +215,7 @@ textarea:focus-visible {
 .studio-copy strong {
   font-size: 28px;
   line-height: 1.15;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 
 .studio-facts {
@@ -285,11 +293,11 @@ textarea:focus-visible {
 
 .timeline-step strong {
   max-width: 100%;
-  overflow: hidden;
   font-size: 11px;
   font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.12;
+  text-align: center;
+  white-space: normal;
 }
 
 .timeline-step.active {
@@ -546,7 +554,8 @@ textarea:focus-visible {
 .trust-grid span,
 .code-button,
 .waitlist-note,
-.note-limit {
+.note-limit,
+.settings-note {
   color: var(--tg-muted);
   font-size: 12px;
   line-height: 1.35;
@@ -557,6 +566,115 @@ textarea:focus-visible {
   align-items: center;
   gap: 7px;
   font-weight: 760;
+}
+
+.payment-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: #f8efe7;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.payment-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.payment-head span,
+.payment-status span {
+  color: var(--tg-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.payment-head strong {
+  flex: 0 0 auto;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.payment-method-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.payment-method {
+  display: grid;
+  min-height: 82px;
+  align-content: start;
+  gap: 7px;
+  padding: 9px;
+  color: var(--tg-text);
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  text-align: left;
+}
+
+.payment-method.selected {
+  color: #69382f;
+  background: #f6e2d8;
+  border-color: rgba(157, 93, 81, 0.5);
+}
+
+.payment-method span,
+.payment-status {
+  display: grid;
+  gap: 3px;
+}
+
+.payment-method strong {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.payment-method small {
+  color: var(--tg-muted);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.payment-status {
+  padding: 10px;
+  background: #fffaf4;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.payment-status.invoice {
+  border-color: rgba(155, 102, 31, 0.42);
+}
+
+.payment-status.paid {
+  border-color: rgba(110, 111, 67, 0.5);
+  background: #f2f3db;
+}
+
+.payment-status strong {
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.payment-status code,
+.endpoint-list code {
+  display: block;
+  padding: 7px 8px;
+  color: #5f3b34;
+  background: #f3dfd3;
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.payment-action {
+  min-height: 42px;
 }
 
 .code-button {
@@ -893,6 +1011,70 @@ select {
   margin: 0;
 }
 
+.settings-screen {
+  gap: 12px;
+}
+
+.settings-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 12px 28px rgba(67, 42, 31, 0.06);
+}
+
+.settings-card label {
+  display: grid;
+  gap: 6px;
+  color: var(--tg-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.settings-segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  background: #eadfd5;
+  border-radius: var(--radius);
+}
+
+.settings-segmented button {
+  min-height: 38px;
+  color: var(--tg-muted);
+  background: transparent;
+  border-radius: 6px;
+  font-weight: 800;
+}
+
+.settings-segmented button.selected {
+  color: #69382f;
+  background: #fffaf4;
+}
+
+.settings-toggle {
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: start;
+}
+
+.settings-toggle input {
+  width: 18px;
+  min-height: 18px;
+  margin: 1px 0 0;
+}
+
+.endpoint-list {
+  display: grid;
+  gap: 7px;
+}
+
+.settings-note {
+  margin: 0;
+}
+
 .bottom-nav {
   position: absolute;
   right: 0;
@@ -900,7 +1082,7 @@ select {
   left: 0;
   z-index: 30;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
   background: rgba(255, 250, 244, 0.92);
@@ -920,6 +1102,8 @@ select {
   border-radius: var(--radius);
   font-size: 12px;
   font-weight: 800;
+  line-height: 1.1;
+  text-align: center;
 }
 
 .bottom-nav button.selected {
@@ -987,6 +1171,14 @@ select {
 @media (max-width: 360px) {
   .telegram-action span {
     display: none;
+  }
+
+  .payment-method-list {
+    grid-template-columns: 1fr;
+  }
+
+  .bottom-nav button {
+    font-size: 11px;
   }
 
   .studio-intro {

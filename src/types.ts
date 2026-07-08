@@ -53,4 +53,4 @@ export type BookingDraft = {
   note?: string;
 };
 
-export type TabKey = 'booking' | 'my' | 'admin';
+export type TabKey = 'booking' | 'my' | 'admin' | 'settings';

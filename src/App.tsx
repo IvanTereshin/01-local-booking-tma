@@ -4,7 +4,9 @@ import {
   CalendarDays,
   Check,
   Clock,
+  CreditCard,
   Home,
+  Landmark,
   LayoutDashboard,
   Loader2,
   MapPin,
@@ -12,6 +14,7 @@ import {
   Phone,
   RefreshCw,
   Scissors,
+  Settings,
   ShieldCheck,
   Sparkles,
   Star,
@@ -31,6 +34,25 @@ const currentClient = {
   phone: '+7 900 120-44-18',
 };
 
+type PaymentMethod = 'telegram-stars' | 'sbp' | 'yookassa';
+type PaymentMode = 'test' | 'production';
+type PaymentStatus = 'idle' | 'invoice' | 'paid';
+
+type AppSettings = {
+  paymentMode: PaymentMode;
+  defaultPaymentMethod: PaymentMethod;
+  reminders: 'both' | 'day' | 'two-hours';
+  telegramReceipts: boolean;
+  merchantLabel: string;
+};
+
+type PaymentSession = {
+  id: string;
+  method: PaymentMethod;
+  endpoint: string;
+  confirmationLabel: string;
+};
+
 const businessProfile = {
   name: 'Atelier Vera',
   subtitle: 'Hair, color and evening styling',
@@ -40,6 +62,46 @@ const businessProfile = {
   reviews: 318,
   cancellation: 'Бесплатный перенос за 6 часов',
 };
+
+const SETTINGS_KEY = 'local-booking-tma:settings-v2';
+
+const defaultSettings: AppSettings = {
+  paymentMode: 'test',
+  defaultPaymentMethod: 'yookassa',
+  reminders: 'both',
+  telegramReceipts: true,
+  merchantLabel: 'Atelier Vera · ShopID demo-1024',
+};
+
+const paymentMethods: Array<{
+  id: PaymentMethod;
+  title: string;
+  short: string;
+  details: string;
+  endpoint: string;
+}> = [
+  {
+    id: 'telegram-stars',
+    title: 'Telegram Stars',
+    short: 'XTR',
+    details: 'Для цифрового депозита, сертификата или подписки внутри Telegram.',
+    endpoint: '/api/payments/telegram-stars/invoice',
+  },
+  {
+    id: 'sbp',
+    title: 'СБП',
+    short: 'QR / банк',
+    details: 'Redirect-сценарий ЮKassa: клиент подтверждает оплату в приложении банка.',
+    endpoint: '/api/payments/yookassa/sbp',
+  },
+  {
+    id: 'yookassa',
+    title: 'ЮKassa',
+    short: 'Карта / SberPay',
+    details: 'Платежная форма ЮKassa для услуг салона, чеков и возвратов.',
+    endpoint: '/api/payments/yookassa/checkout',
+  },
+];
 
 const moneyFormatter = new Intl.NumberFormat('ru-RU');
 
@@ -67,6 +129,41 @@ const isPastBooking = (booking: Booking) => {
 const getService = (services: Service[], id: string) => services.find((service) => service.id === id);
 const getSpecialist = (specialists: Specialist[], id: string) =>
   specialists.find((specialist) => specialist.id === id);
+const getPaymentMethod = (id: PaymentMethod) => paymentMethods.find((method) => method.id === id) ?? paymentMethods[0];
+const getPrepayAmount = (service: Service) => Math.max(300, Math.round(service.price * 0.2));
+
+const readSettings = () => {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    return raw ? { ...defaultSettings, ...(JSON.parse(raw) as Partial<AppSettings>) } : defaultSettings;
+  } catch {
+    return defaultSettings;
+  }
+};
+
+const writeSettings = (settings: AppSettings) => {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+};
+
+const createPaymentSession = async (
+  method: PaymentMethod,
+  amount: number,
+  mode: PaymentMode,
+): Promise<PaymentSession> => {
+  await new Promise((resolve) => window.setTimeout(resolve, 420));
+  const paymentMethod = getPaymentMethod(method);
+  return {
+    id: `${mode}-${method}-${Date.now()}-${amount}`,
+    method,
+    endpoint: paymentMethod.endpoint,
+    confirmationLabel:
+      method === 'telegram-stars'
+        ? 'Открыть invoice в Telegram'
+        : method === 'sbp'
+          ? 'Открыть банк или QR'
+          : 'Открыть форму ЮKassa',
+  };
+};
 
 function useReducedMotionPreference() {
   const [reduced, setReduced] = useState(false);
@@ -115,7 +212,14 @@ function AppHeader({
   activeTab: TabKey;
   onTabChange: (tab: TabKey) => void;
 }) {
-  const title = activeTab === 'booking' ? businessProfile.name : activeTab === 'my' ? 'Мои записи' : 'Админ-день';
+  const title =
+    activeTab === 'booking'
+      ? businessProfile.name
+      : activeTab === 'my'
+        ? 'Мои записи'
+        : activeTab === 'admin'
+          ? 'Админ-день'
+          : 'Настройки';
 
   return (
     <header className="app-header">
@@ -181,6 +285,7 @@ function BookingFlow({
   specialists,
   bookings,
   blockedSlots,
+  settings,
   onCreated,
   onOpenBookings,
 }: {
@@ -188,6 +293,7 @@ function BookingFlow({
   specialists: Specialist[];
   bookings: Booking[];
   blockedSlots: BlockedSlot[];
+  settings: AppSettings;
   onCreated: (booking: Booking) => void;
   onOpenBookings: () => void;
 }) {
@@ -202,6 +308,10 @@ function BookingFlow({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState<Booking | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(settings.defaultPaymentMethod);
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('idle');
+  const [paymentSession, setPaymentSession] = useState<PaymentSession | null>(null);
+  const [isCreatingPayment, setIsCreatingPayment] = useState(false);
   const successRef = useRef<HTMLDivElement>(null);
   const reducedMotion = useReducedMotionPreference();
 
@@ -233,6 +343,13 @@ function BookingFlow({
   const snapshot = { bookings, blockedSlots };
   const confirmationTime = success?.time ?? time;
   const currentStep = time ? 3 : selectedSpecialist ? 2 : selectedService ? 1 : 0;
+  const prepayAmount = selectedService ? getPrepayAmount(selectedService) : 0;
+
+  useEffect(() => {
+    setPaymentMethod(settings.defaultPaymentMethod);
+    setPaymentStatus('idle');
+    setPaymentSession(null);
+  }, [settings.defaultPaymentMethod]);
 
   useGSAP(
     () => {
@@ -243,7 +360,7 @@ function BookingFlow({
         { autoAlpha: 1, y: 0, scale: 1, duration: 0.42, ease: 'power3.out' },
       );
     },
-    { dependencies: [success?.id, reducedMotion], scope: successRef },
+    { dependencies: [success?.id, reducedMotion] },
   );
 
   const handleServiceSelect = (id: string) => {
@@ -251,6 +368,8 @@ function BookingFlow({
     setTime('');
     setSuccess(null);
     setError('');
+    setPaymentStatus('idle');
+    setPaymentSession(null);
   };
 
   const handleSpecialistSelect = (id: string) => {
@@ -258,10 +377,12 @@ function BookingFlow({
     setTime('');
     setSuccess(null);
     setError('');
+    setPaymentStatus('idle');
+    setPaymentSession(null);
   };
 
   const handleCreate = async () => {
-    if (!selectedService || !selectedSpecialist || !time) return;
+    if (!selectedService || !selectedSpecialist || !time || paymentStatus !== 'paid') return;
 
     setIsSaving(true);
     setError('');
@@ -292,6 +413,35 @@ function BookingFlow({
     setWaitlistNotice(`${slot} занят. Мы поставили вас в лист ожидания и пришлем уведомление, если окно освободится.`);
     setTime('');
     setSuccess(null);
+    setPaymentStatus('idle');
+    setPaymentSession(null);
+  };
+
+  const handlePaymentAction = async () => {
+    if (!selectedService || !time) return;
+
+    if (paymentStatus === 'invoice') {
+      setPaymentStatus('paid');
+      return;
+    }
+
+    setIsCreatingPayment(true);
+    setError('');
+    try {
+      const session = await createPaymentSession(paymentMethod, prepayAmount, settings.paymentMode);
+      setPaymentSession(session);
+      setPaymentStatus('invoice');
+    } catch {
+      setError('Не удалось создать платежную сессию.');
+    } finally {
+      setIsCreatingPayment(false);
+    }
+  };
+
+  const changePaymentMethod = (method: PaymentMethod) => {
+    setPaymentMethod(method);
+    setPaymentStatus('idle');
+    setPaymentSession(null);
   };
 
   if (!selectedService || !selectedSpecialist) {
@@ -397,6 +547,8 @@ function BookingFlow({
                   setWaitlistNotice('');
                   setSuccess(null);
                   setError('');
+                  setPaymentStatus('idle');
+                  setPaymentSession(null);
                 }}
               >
                 {slot}
@@ -427,6 +579,17 @@ function BookingFlow({
             <Phone size={15} /> Код подтверждения в Telegram
           </span>
         </div>
+        <PaymentPanel
+          amount={prepayAmount}
+          disabled={!time}
+          mode={settings.paymentMode}
+          method={paymentMethod}
+          session={paymentSession}
+          status={paymentStatus}
+          isLoading={isCreatingPayment}
+          onAction={handlePaymentAction}
+          onMethodChange={changePaymentMethod}
+        />
         <button className="code-button" type="button" onClick={() => setPhoneCodeSent(true)}>
           {phoneCodeSent ? 'Код 4281 отправлен в Telegram' : 'Отправить mock-код подтверждения'}
         </button>
@@ -439,9 +602,14 @@ function BookingFlow({
         />
         <small className="note-limit">{note.length}/160</small>
         {error && <p className="inline-error">{error}</p>}
-        <button className="primary-button" type="button" disabled={!time || isSaving || Boolean(success)} onClick={handleCreate}>
+        <button
+          className="primary-button"
+          type="button"
+          disabled={!time || paymentStatus !== 'paid' || isSaving || Boolean(success)}
+          onClick={handleCreate}
+        >
           {isSaving ? <Loader2 className="spin" size={18} /> : <Check size={18} />}
-          {isSaving ? 'Создаем запись' : success ? 'Запись создана' : 'Подтвердить запись'}
+          {isSaving ? 'Создаем запись' : success ? 'Запись создана' : 'Подтвердить после оплаты'}
         </button>
         {success && (
           <div className="success-state" ref={successRef}>
@@ -456,6 +624,81 @@ function BookingFlow({
         )}
       </section>
     </main>
+  );
+}
+
+function PaymentPanel({
+  amount,
+  disabled,
+  mode,
+  method,
+  session,
+  status,
+  isLoading,
+  onAction,
+  onMethodChange,
+}: {
+  amount: number;
+  disabled: boolean;
+  mode: PaymentMode;
+  method: PaymentMethod;
+  session: PaymentSession | null;
+  status: PaymentStatus;
+  isLoading: boolean;
+  onAction: () => void;
+  onMethodChange: (method: PaymentMethod) => void;
+}) {
+  const selectedMethod = getPaymentMethod(method);
+  const actionLabel =
+    status === 'paid'
+      ? 'Оплата подтверждена'
+      : status === 'invoice'
+        ? 'Подтвердить оплату в демо'
+        : 'Сформировать счет';
+
+  return (
+    <section className="payment-panel" aria-label="Оплата записи">
+      <div className="payment-head">
+        <span>Оплата</span>
+        <strong>{formatMoney(amount)}</strong>
+      </div>
+      <div className="payment-method-list" role="radiogroup" aria-label="Способ оплаты">
+        {paymentMethods.map((item) => {
+          const selected = item.id === method;
+          const Icon = item.id === 'telegram-stars' ? Star : item.id === 'sbp' ? Landmark : CreditCard;
+          return (
+            <button
+              className={selected ? 'payment-method selected' : 'payment-method'}
+              type="button"
+              key={item.id}
+              role="radio"
+              aria-checked={selected}
+              disabled={status === 'paid'}
+              onClick={() => onMethodChange(item.id)}
+            >
+              <Icon size={17} />
+              <span>
+                <strong>{item.title}</strong>
+                <small>{item.short}</small>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div className={`payment-status ${status}`}>
+        <strong>{selectedMethod.title} · {mode === 'production' ? 'production' : 'test'}</strong>
+        <span>{selectedMethod.details}</span>
+        {session && (
+          <code>
+            {session.endpoint} · {session.id}
+          </code>
+        )}
+      </div>
+      <button className="secondary-button payment-action" type="button" disabled={disabled || status === 'paid'} onClick={onAction}>
+        {isLoading ? <Loader2 className="spin" size={16} /> : status === 'paid' ? <Check size={16} /> : <CreditCard size={16} />}
+        {isLoading ? 'Создаем счет' : actionLabel}
+      </button>
+    </section>
   );
 }
 
@@ -789,6 +1032,97 @@ function AdminPanel({
   );
 }
 
+function SettingsPanel({
+  settings,
+  onChange,
+}: {
+  settings: AppSettings;
+  onChange: (settings: AppSettings) => void;
+}) {
+  const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
+    onChange({ ...settings, [key]: value });
+  };
+
+  return (
+    <main className="screen settings-screen">
+      <section className="settings-card">
+        <SectionTitle eyebrow="Платежи" title="Режим и провайдер" />
+        <div className="settings-segmented" role="group" aria-label="Режим оплаты">
+          <button
+            className={settings.paymentMode === 'test' ? 'selected' : ''}
+            type="button"
+            onClick={() => update('paymentMode', 'test')}
+          >
+            Test
+          </button>
+          <button
+            className={settings.paymentMode === 'production' ? 'selected' : ''}
+            type="button"
+            onClick={() => update('paymentMode', 'production')}
+          >
+            Production
+          </button>
+        </div>
+        <label>
+          Метод по умолчанию
+          <select
+            value={settings.defaultPaymentMethod}
+            onChange={(event) => update('defaultPaymentMethod', event.target.value as PaymentMethod)}
+          >
+            {paymentMethods.map((method) => (
+              <option value={method.id} key={method.id}>
+                {method.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Merchant label
+          <input
+            value={settings.merchantLabel}
+            onChange={(event) => update('merchantLabel', event.target.value)}
+            maxLength={80}
+          />
+        </label>
+      </section>
+
+      <section className="settings-card">
+        <SectionTitle eyebrow="Уведомления" title="Telegram-сервис" />
+        <label>
+          Напоминания
+          <select value={settings.reminders} onChange={(event) => update('reminders', event.target.value as AppSettings['reminders'])}>
+            <option value="both">За день и за 2 часа</option>
+            <option value="day">Только за день</option>
+            <option value="two-hours">Только за 2 часа</option>
+          </select>
+        </label>
+        <label className="settings-toggle">
+          <input
+            type="checkbox"
+            checked={settings.telegramReceipts}
+            onChange={(event) => update('telegramReceipts', event.target.checked)}
+          />
+          <span>Отправлять чек и статус оплаты через бота</span>
+        </label>
+      </section>
+
+      <section className="settings-card">
+        <SectionTitle eyebrow="Backend" title="Production endpoints" />
+        <div className="endpoint-list">
+          {paymentMethods.map((method) => (
+            <code key={method.id}>{method.endpoint}</code>
+          ))}
+          <code>/api/payments/webhook/yookassa</code>
+          <code>/api/telegram/pre-checkout</code>
+        </div>
+        <p className="settings-note">
+          Bot token, ShopID и secret key остаются на сервере. Мини-апп получает только invoice link или confirmation_url.
+        </p>
+      </section>
+    </main>
+  );
+}
+
 function SectionTitle({ eyebrow, title }: { eyebrow: string; title: string }) {
   return (
     <div className="section-title">
@@ -813,6 +1147,7 @@ function BottomNav({ activeTab, onTabChange }: { activeTab: TabKey; onTabChange:
     { id: 'booking' as const, label: 'Запись', icon: Home },
     { id: 'my' as const, label: 'Мои', icon: CalendarDays },
     { id: 'admin' as const, label: 'Админ', icon: LayoutDashboard },
+    { id: 'settings' as const, label: 'Настройки', icon: Settings },
   ];
 
   return (
@@ -853,6 +1188,7 @@ export function App() {
   const [specialists, setSpecialists] = useState<Specialist[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([]);
+  const [settings, setSettings] = useState<AppSettings>(readSettings);
   const [isLoading, setIsLoading] = useState(true);
   const reducedMotion = useReducedMotionPreference();
 
@@ -867,6 +1203,10 @@ export function App() {
       setIsLoading(false);
     });
   }, []);
+
+  useEffect(() => {
+    writeSettings(settings);
+  }, [settings]);
 
   const cancelBooking = async (id: string) => {
     const nextBookings = await api.cancelBooking(id);
@@ -895,9 +1235,11 @@ export function App() {
 
   useGSAP(
     () => {
-      if (reducedMotion) return;
+      if (reducedMotion || !shellRef.current) return;
+      const targets = shellRef.current.querySelectorAll('.app-header, .screen > *');
+      if (targets.length === 0) return;
       gsap.fromTo(
-        '.app-header, .screen > *',
+        targets,
         { autoAlpha: 0, y: 18 },
         { autoAlpha: 1, y: 0, duration: 0.45, ease: 'power3.out', stagger: 0.045 },
       );
@@ -917,6 +1259,7 @@ export function App() {
             specialists={specialists}
             bookings={bookings}
             blockedSlots={blockedSlots}
+            settings={settings}
             onCreated={(booking) => setBookings((current) => [booking, ...current])}
             onOpenBookings={() => setActiveTab('my')}
           />
@@ -941,6 +1284,7 @@ export function App() {
             onUnblockSlot={unblockSlot}
           />
         )}
+        {activeTab === 'settings' && <SettingsPanel settings={settings} onChange={setSettings} />}
         <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
       </div>
     </div>
