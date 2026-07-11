@@ -13,7 +13,6 @@ import {
   MessageCircle,
   Phone,
   RefreshCw,
-  Scissors,
   Settings,
   ShieldCheck,
   Sparkles,
@@ -240,15 +239,20 @@ function StudioIntro() {
     <section className="studio-intro">
       <ImageFallback
         src="/assets/booking-studio.png"
-        alt="Studio interior"
-        initials="LB"
-        gradient="linear-gradient(135deg, #eef6f1, #cfe3ef 55%, #f5d8c8)"
+        alt="Светлый интерьер студии Atelier Vera"
+        initials="AV"
+        gradient="linear-gradient(135deg, #eadfd2, #cbb9aa 55%, #9a6250)"
         className="studio-image"
       />
+      <div className="studio-monogram" aria-hidden="true">AV</div>
       <div className="studio-copy">
-        <span>Ближайшее окно: {businessProfile.nearestSlot}</span>
+        <p className="studio-label">Private beauty studio · Moscow</p>
         <strong>{businessProfile.name}</strong>
         <small>{businessProfile.subtitle}</small>
+        <div className="studio-next-slot">
+          <span>Ближайшее окно</span>
+          <b>{businessProfile.nearestSlot}</b>
+        </div>
         <div className="studio-facts">
           <small>
             <MapPin size={13} /> {businessProfile.address}
@@ -266,13 +270,13 @@ function StudioIntro() {
 }
 
 function BookingTimeline({ currentStep }: { currentStep: number }) {
-  const steps = ['Услуга', 'Мастер', 'Время', 'Подтверждение'];
+  const steps = ['Услуга', 'Мастер', 'Дата', 'Время', 'Готово'];
 
   return (
     <section className="booking-timeline" aria-label="Шаги записи">
       {steps.map((step, index) => (
         <div className={index <= currentStep ? 'timeline-step active' : 'timeline-step'} key={step}>
-          <span>{index + 1}</span>
+          <span>{index < currentStep ? <Check size={12} /> : index + 1}</span>
           <strong>{step}</strong>
         </div>
       ))}
@@ -305,6 +309,7 @@ function BookingFlow({
   const [phoneCodeSent, setPhoneCodeSent] = useState(false);
   const [waitlistEntries, setWaitlistEntries] = useState<string[]>([]);
   const [waitlistNotice, setWaitlistNotice] = useState('');
+  const [conflictSlot, setConflictSlot] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState<Booking | null>(null);
@@ -312,7 +317,7 @@ function BookingFlow({
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('idle');
   const [paymentSession, setPaymentSession] = useState<PaymentSession | null>(null);
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
-  const successRef = useRef<HTMLDivElement>(null);
+  const successRef = useRef<HTMLElement>(null);
   const reducedMotion = useReducedMotionPreference();
 
   const selectedService = getService(services, serviceId);
@@ -342,7 +347,7 @@ function BookingFlow({
 
   const snapshot = { bookings, blockedSlots };
   const confirmationTime = success?.time ?? time;
-  const currentStep = time ? 3 : selectedSpecialist ? 2 : selectedService ? 1 : 0;
+  const currentStep = success ? 4 : time ? 3 : date ? 2 : selectedSpecialist ? 1 : 0;
   const prepayAmount = selectedService ? getPrepayAmount(selectedService) : 0;
 
   useEffect(() => {
@@ -397,10 +402,12 @@ function BookingFlow({
         note: note.trim() || undefined,
       });
       setSuccess(booking);
+      setConflictSlot('');
       setTime('');
       setNote('');
       onCreated(booking);
     } catch (caught) {
+      setConflictSlot(time);
       setError(caught instanceof Error ? caught.message : 'Не удалось создать запись.');
     } finally {
       setIsSaving(false);
@@ -454,7 +461,7 @@ function BookingFlow({
       <BookingTimeline currentStep={currentStep} />
 
       <section className="flow-section">
-        <SectionTitle eyebrow="Прайс-лист" title="Выберите услугу" />
+        <SectionTitle eyebrow="01 · Меню" title="Ритуал для вас" />
         <div className="service-list">
           {services.map((service) => (
             <button
@@ -463,9 +470,7 @@ function BookingFlow({
               key={service.id}
               onClick={() => handleServiceSelect(service.id)}
             >
-              <span className="service-icon">
-                <Scissors size={18} />
-              </span>
+              <span className="service-index">{String(services.indexOf(service) + 1).padStart(2, '0')}</span>
               <span className="service-main">
                 <strong>{service.title}</strong>
                 <small>{service.description}</small>
@@ -480,7 +485,7 @@ function BookingFlow({
       </section>
 
       <section className="flow-section">
-        <SectionTitle eyebrow="Команда" title="Специалист" />
+        <SectionTitle eyebrow="02 · Команда" title="Выберите мастера" />
         <div className="specialist-grid">
           {availableSpecialists.map((specialist) => (
             <button
@@ -497,6 +502,7 @@ function BookingFlow({
                 className="specialist-avatar"
               />
               <span>
+                <small className="specialist-signature">atelier expert</small>
                 <strong>{specialist.name}</strong>
                 <small>{specialist.role}</small>
                 <em>
@@ -509,7 +515,7 @@ function BookingFlow({
       </section>
 
       <section className="flow-section">
-        <SectionTitle eyebrow="Календарь" title="Дата и время" />
+        <SectionTitle eyebrow="03 · Визит" title="Дата и время" />
         <div className="date-strip" aria-label="Выбор даты">
           {demoDates.map((item) => (
             <button
@@ -520,6 +526,7 @@ function BookingFlow({
                 setDate(item);
                 setTime('');
                 setSuccess(null);
+                setConflictSlot('');
               }}
             >
               <span>{formatDate(item).split(',')[0]}</span>
@@ -528,6 +535,12 @@ function BookingFlow({
           ))}
         </div>
 
+        <div className="slot-legend" aria-label="Обозначения времени">
+          <span><i className="free" /> свободно</span>
+          <span><i className="busy" /> занято</span>
+          <span><i className="waitlist" /> лист ожидания</span>
+          <span><i className="conflict" /> конфликт</span>
+        </div>
         <div className="slot-grid">
           {selectedSpecialist.slots.map((slot) => {
             const occupied = isSlotOccupied(snapshot, selectedSpecialist.id, date, slot);
@@ -535,9 +548,10 @@ function BookingFlow({
             const inWaitlist = waitlistEntries.includes(waitlistKey);
             return (
               <button
-                className={`slot-button ${slot === time ? 'selected' : ''} ${occupied ? 'occupied' : ''} ${inWaitlist ? 'waitlisted' : ''}`}
+                className={`slot-button ${slot === time ? 'selected' : ''} ${occupied ? 'occupied' : 'free'} ${inWaitlist ? 'waitlisted' : ''} ${slot === conflictSlot ? 'conflict' : ''}`}
                 type="button"
                 key={slot}
+                aria-label={`${slot}: ${slot === conflictSlot ? 'конфликт записи' : inWaitlist ? 'вы в листе ожидания' : occupied ? 'занято, можно встать в лист ожидания' : slot === time ? 'выбрано' : 'свободно'}`}
                 onClick={() => {
                   if (occupied) {
                     joinWaitlist(slot);
@@ -547,12 +561,13 @@ function BookingFlow({
                   setWaitlistNotice('');
                   setSuccess(null);
                   setError('');
+                  setConflictSlot('');
                   setPaymentStatus('idle');
                   setPaymentSession(null);
                 }}
               >
-                {slot}
-                {occupied && <span>{inWaitlist ? 'в ожидании' : 'лист ожидания'}</span>}
+                <strong>{slot}</strong>
+                <span>{slot === conflictSlot ? 'конфликт' : inWaitlist ? 'в ожидании' : occupied ? 'занято' : slot === time ? 'выбрано' : 'свободно'}</span>
               </button>
             );
           })}
@@ -562,7 +577,7 @@ function BookingFlow({
 
       <section className="confirmation-panel">
         <div>
-          <p>Подтверждение</p>
+          <p>04 · Подтверждение</p>
           <strong>{selectedService.title}</strong>
           <small>
             {selectedSpecialist.name} · {formatDate(date, 'long')} · {confirmationTime || 'выберите слот'}
@@ -612,18 +627,52 @@ function BookingFlow({
           {isSaving ? 'Создаем запись' : success ? 'Запись создана' : 'Подтвердить после оплаты'}
         </button>
         {success && (
-          <div className="success-state" ref={successRef}>
-            <Check size={18} />
-            <span>
-              Запись создана на {success.time}.{' '}
-              <button type="button" onClick={onOpenBookings}>
-                Открыть мои записи
-              </button>
-            </span>
-          </div>
+          <BookingPass
+            booking={success}
+            service={selectedService}
+            specialist={selectedSpecialist}
+            onOpenBookings={onOpenBookings}
+            passRef={successRef}
+          />
         )}
       </section>
     </main>
+  );
+}
+
+function BookingPass({
+  booking,
+  service,
+  specialist,
+  onOpenBookings,
+  passRef,
+}: {
+  booking: Booking;
+  service: Service;
+  specialist: Specialist;
+  onOpenBookings: () => void;
+  passRef: React.RefObject<HTMLElement>;
+}) {
+  return (
+    <article className="booking-pass" ref={passRef} aria-live="polite">
+      <header>
+        <span>Atelier Vera</span>
+        <b>confirmed</b>
+      </header>
+      <div className="pass-date">
+        <strong>{booking.time}</strong>
+        <span>{formatDate(booking.date, 'long')}</span>
+      </div>
+      <div className="pass-details">
+        <span>{service.title}</span>
+        <span>{specialist.name}</span>
+        <span>{formatMoney(service.price)}</span>
+      </div>
+      <div className="pass-footer">
+        <span>AV-{booking.id.slice(-6)}</span>
+        <button type="button" onClick={onOpenBookings}>Мои записи →</button>
+      </div>
+    </article>
   );
 }
 
